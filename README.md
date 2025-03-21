@@ -27,16 +27,45 @@ DB_ROOT_PASSWORD=your_secure_root_password
 
 If you don't set these, default values will be used (`librenms_password` and `librenms_root_password`).
 
-### Step 2: Deploy with Detach Flag
+### Step 2: Expected Warnings and Config Updates
 
-> **IMPORTANT**: When deploying through Portainer, use these settings:
->
-> - In Portainer's "Advanced Mode" or "Additional Settings" section, look for "Detach" or "--detach" option
-> - Set it to "false" or ensure "--detach=false" is used
->
-> This addresses the warning: "Since --detach=false was not specified, tasks will be created in the background."
->
-> If Portainer doesn't offer this option, you may see this warning, but deployment should still succeed.
+When deploying through Portainer, you may see these warnings/errors:
+
+1. **Detach Warning**: 
+   ```
+   Since --detach=false was not specified, tasks will be created in the background.
+   ```
+   - This is just an informational message and can be safely ignored
+   - In future Docker versions, this will be the default behavior
+
+2. **Config Update Error** (when re-deploying after changes):
+   ```
+   failed to update config: only updates to Labels are allowed
+   ```
+   - This happens because Docker Swarm configs are immutable
+   - Solution: We use versioned configs (`*_v1`, `*_v2`, etc.) to avoid this error
+
+### Step 3: Updating Configurations
+
+If you need to modify the MariaDB configuration or backup script:
+
+1. Edit the respective file (mariadb-config.cnf or backup.sh)
+2. Increment the version numbers in docker-compose.yml in both places:
+
+```yaml
+# In the service definition:
+configs:
+  - source: mariadb_config_v2  # Change from v1 to v2
+    target: /etc/mysql/conf.d/custom.cnf
+
+# In the configs section at the bottom:
+configs:
+  mariadb_config_v2:  # Change from v1 to v2
+    file: ./mariadb-config.cnf
+    name: librenms_mariadb_config_v2  # Change from v1 to v2
+```
+
+This approach works because Docker Swarm will create a new config with the new name rather than trying to update the existing one.
 
 ### Step 3: Verify Deployment
 

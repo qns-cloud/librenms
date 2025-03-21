@@ -27,7 +27,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:-librenms_password}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-librenms_root_password}
     configs:
-      - source: mariadb_config
+      - source: mariadb_config_v1
         target: /etc/mysql/conf.d/custom.cnf
     logging:
       driver: "json-file"
@@ -186,7 +186,6 @@ services:
       labels:
         com.librenms.service: "backup"
         com.librenms.description: "Backup service for LibreNMS"
-        com.portainer.feature.detach-false: "true"  # Hint for Portainer to use --detach=false
     volumes:
       - db-backup:/backup/db
       - librenms-backup:/backup/librenms
@@ -200,7 +199,7 @@ services:
       - CHOWN
       - DAC_OVERRIDE
     configs:
-      - source: backup_script
+      - source: backup_script_v1
         target: /scripts/backup.sh
         mode: 0755
     entrypoint: ["/bin/sh", "-c", "crond -f -d 8"]
@@ -242,7 +241,9 @@ networks:
       com.librenms.network: "main"
 
 configs:
-  mariadb_config:
-    file: ./mariadb-config.cnf  # Create this file with optimized MySQL settings
-  backup_script:
-    file: ./backup.sh  # Backup script for scheduled backups
+  mariadb_config_v1:
+    file: ./mariadb-config.cnf
+    name: librenms_mariadb_config_v1  # Versioned name to avoid update conflicts
+  backup_script_v1:
+    file: ./backup.sh
+    name: librenms_backup_script_v1  # Versioned name to avoid update conflicts
