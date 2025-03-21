@@ -1,0 +1,260 @@
+version: "3.8"
+
+services:
+  db:
+    image: mariadb:10.5
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+      labels:
+        com.librenms.service: "database"
+        com.librenms.description: "MariaDB database for LibreNMS"
+        com.librenms.backup: "true"
+    environment:
+      MYSQL_DATABASE: librenms
+      MYSQL_USER: librenms
+    secrets:
+      - db_root_password
+      - db_password
+    configs:
+      - source: mariadb_config
+        target: /etc/mysql/conf.d/custom.cnf
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - db-data:/var/lib/mysql
+      - db-backup:/backup
+    networks:
+      - librenms
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+
+  redis:
+    image: redis:6.2-alpine
+    deploy:
+      mode: global
+      restart_policy:
+        condition: any
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+      labels:
+        com.librenms.service: "cache"
+        com.librenms.description: "Redis cache for LibreNMS"
+        com.librenms.backup: "false"
+    networks:
+      - librenms
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - SYS_RESOURCE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  librenms:
+    image: librenms/librenms:23.11.0
+    deploy:
+      mode: replicated
+      replicas: 2  # Ensures high availability
+      restart_policy:
+        condition: any
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+      labels:
+        com.librenms.service: "application"
+        com.librenms.description: "LibreNMS network monitoring system"
+        com.librenms.backup: "true"
+    environment:
+      DB_HOST: db
+      DB_NAME: librenms
+      DB_USER: librenms
+      REDIS_HOST: redis
+      TZ: "UTC"
+      BASE_URL: "http://localhost"
+      ENABLE_DISTRIBUTED_POLLING: "true"
+      DB_RRD: "true"
+    secrets:
+      - db_password
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    volumes:
+      - librenms-data:/data
+      - librenms-backup:/backup
+    entrypoint: ["/bin/sh", "-c", "until mysqladmin ping -h db --silent; do sleep 5; done; /init"]
+    ports:
+      - "8080:8000"  # Changed to avoid Portainer conflict
+    networks:
+      - librenms
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  memcached:
+    image: memcached:alpine
+    deploy:
+      mode: global
+      restart_policy:
+        condition: any
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+      labels:
+        com.librenms.service: "cache"
+        com.librenms.description: "Memcached for LibreNMS"
+        com.librenms.backup: "false"
+    networks:
+      - librenms
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - SYS_RESOURCE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "11211"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  # Backup service for regular backups
+  backup:
+    image: alpine:latest
+    deploy:
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+      labels:
+        com.librenms.service: "backup"
+        com.librenms.description: "Backup service for LibreNMS"
+    volumes:
+      - db-backup:/backup/db
+      - librenms-backup:/backup/librenms
+      - backup-config:/scripts
+    networks:
+      - librenms
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    configs:
+      - source: backup_script
+        target: /scripts/backup.sh
+        mode: 0755
+    entrypoint: ["/bin/sh", "-c", "crond -f -d 8"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      BACKUP_SCHEDULE: "0 2 * * *"  # Run at 2 AM every day
+volumes:
+  db-data:
+    driver: local
+    name: librenms_db_data
+    labels:
+      com.librenms.volume: "database-data"
+      com.librenms.backup: "true"
+  librenms-data:
+    driver: local
+    name: librenms_app_data
+    labels:
+      com.librenms.volume: "application-data"
+      com.librenms.backup: "true"
+  db-backup:
+    driver: local
+    name: librenms_db_backup
+  librenms-backup:
+    driver: local
+    name: librenms_app_backup
+  backup-config:
+    driver: local
+    name: librenms_backup_config
+
+networks:
+  librenms:
+    driver: overlay
+    attachable: true
+    labels:
+      com.librenms.network: "main"
+
+secrets:
+  db_root_password:
+    external: true  # Create this secret before deployment with: docker secret create db_root_password /path/to/password_file
+  db_password:
+    external: true  # Create this secret before deployment with: docker secret create db_password /path/to/password_file
+
+configs:
+  mariadb_config:
+    file: ./mariadb-config.cnf  # Create this file with optimized MySQL settings
+  backup_script:
+    file: ./backup.sh  # Backup script for scheduled backups
