@@ -4,7 +4,7 @@ skip-networking=0
 bind-address=0.0.0.0  # Only needed if you want to allow remote connections
 local-infile=0
 symbolic-links=0
-secure-file-priv=NULL  # Disabled for Docker Swarm compatibility
+# secure-file-priv completely removed to avoid normalization errors
 
 # User limits
 max_connections=100
