@@ -1,9 +1,9 @@
 version: "3.8"
 
-# IMPORTANT DEPLOYMENT NOTES FOR PORTAINER:
-# 1. Set environment variables DB_PASSWORD and DB_ROOT_PASSWORD when deploying
-# 2. In Portainer deployment options, set --detach=false if available
-# 3. All services have security_opt removed for Docker Swarm compatibility
+# DEPLOYMENT NOTES FOR PORTAINER:
+# 1. Upload all config files to a Git repository or directly to Portainer
+# 2. Set environment variables DB_PASSWORD and DB_ROOT_PASSWORD when deploying through Portainer UI
+# 3. No local shell scripts are required - this is a fully self-contained stack
 
 services:
   db:
@@ -20,23 +20,17 @@ services:
       labels:
         com.librenms.service: "database"
         com.librenms.description: "MariaDB database for LibreNMS"
-        com.librenms.backup: "true"
     environment:
       MYSQL_DATABASE: librenms
       MYSQL_USER: librenms
       MYSQL_PASSWORD: ${DB_PASSWORD:-librenms_password}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-librenms_root_password}
-    configs:
-      - source: mariadb_config_v3
-        target: /etc/mysql/conf.d/custom.cnf
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      # Use internal MariaDB secure-file-priv setting instead of command line
     volumes:
       - db-data:/var/lib/mysql
-      - db-backup:/backup
+    configs:
+      - source: mariadb_config_v4
+        target: /etc/mysql/conf.d/custom.cnf
     networks:
       - librenms
     healthcheck:
@@ -44,15 +38,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    command: >
-      --default-authentication-plugin=mysql_native_password
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
+    # No command override - using config file instead
 
   redis:
     image: redis:6.2-alpine
     deploy:
-      mode: global
+      mode: replicated
+      replicas: 1
       restart_policy:
         condition: any
       resources:
@@ -62,7 +54,6 @@ services:
       labels:
         com.librenms.service: "cache"
         com.librenms.description: "Redis cache for LibreNMS"
-        com.librenms.backup: "false"
     networks:
       - librenms
     read_only: true
@@ -74,11 +65,6 @@ services:
       - SETGID
       - SETUID
       - SYS_RESOURCE
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -89,7 +75,7 @@ services:
     image: librenms/librenms:23.11.0
     deploy:
       mode: replicated
-      replicas: 1  # Ensures high availability
+      replicas: 1
       restart_policy:
         condition: any
       resources:
@@ -99,28 +85,29 @@ services:
       labels:
         com.librenms.service: "application"
         com.librenms.description: "LibreNMS network monitoring system"
-        com.librenms.backup: "true"
     environment:
       DB_HOST: db
       DB_NAME: librenms
       DB_USER: librenms
       DB_PASSWORD: ${DB_PASSWORD:-librenms_password}
       REDIS_HOST: redis
-      TZ: "UTC"
-      BASE_URL: "http://localhost"
+      # Required timezone, adjust as needed
+      TZ: ${TZ:-UTC}
+      # Adjust this to your actual domain or IP
+      BASE_URL: ${BASE_URL:-http://localhost}
       ENABLE_DISTRIBUTED_POLLING: "true"
+      # Store RRD data in the database for better compatibility
       DB_RRD: "true"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "5"
     volumes:
       - librenms-data:/data
-      - librenms-backup:/backup
+    # Wait for database to be ready
+    depends_on:
+      - db
+      - redis
+      - memcached
     entrypoint: ["/bin/sh", "-c", "until mysqladmin ping -h db --silent; do sleep 5; done; /init"]
     ports:
-      - "8080:8000"  # Changed to avoid Portainer conflict
+      - "${WEB_PORT:-8080}:8000"
     networks:
       - librenms
     cap_drop:
@@ -139,7 +126,8 @@ services:
   memcached:
     image: memcached:alpine
     deploy:
-      mode: global
+      mode: replicated
+      replicas: 1
       restart_policy:
         condition: any
       resources:
@@ -149,7 +137,6 @@ services:
       labels:
         com.librenms.service: "cache"
         com.librenms.description: "Memcached for LibreNMS"
-        com.librenms.backup: "false"
     networks:
       - librenms
     read_only: true
@@ -161,24 +148,20 @@ services:
       - SETGID
       - SETUID
       - SYS_RESOURCE
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "11211"]
       interval: 10s
       timeout: 5s
       retries: 5
-  # Backup service for regular backups
+
+  # Self-contained backup service that doesn't require external scripts
   backup:
     image: alpine:latest
     deploy:
       mode: replicated
       replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
       resources:
         limits:
           cpus: '0.5'
@@ -187,66 +170,82 @@ services:
         com.librenms.service: "backup"
         com.librenms.description: "Backup service for LibreNMS"
     volumes:
-      - db-backup:/backup/db
-      - librenms-backup:/backup/librenms
-      - backup-config:/scripts
+      - db-data:/source/db:ro
+      - librenms-data:/source/librenms:ro
+      - backup-volume:/backup
     networks:
       - librenms
-    read_only: false
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-    configs:
-      - source: backup_script_v1
-        target: /scripts/backup.sh
-        mode: 0755
-    entrypoint: ["/bin/sh", "-c", "crond -f -d 8"]
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    # Install required tools and set up backup automation
+    command: >
+      sh -c "apk add --no-cache mariadb-client tzdata &&
+             mkdir -p /backup/db /backup/librenms &&
+             echo '0 2 * * * /bin/sh -c \"mysqldump -h db -u librenms -p${DB_PASSWORD} --single-transaction --quick --lock-tables=false librenms | gzip > /backup/db/librenms_db_\$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).sql.gz && find /backup/db -name \"librenms_db_*.sql.gz\" -type f -mtime +7 -delete\"' > /var/spool/cron/crontabs/root &&
+             echo '0 3 * * * /bin/sh -c \"tar -czf /backup/librenms/librenms_app_\$$(date +\\%Y\\%m\\%d_\\%H\\%M\\%S).tar.gz -C /source/librenms . && find /backup/librenms -name \"librenms_app_*.tar.gz\" -type f -mtime +7 -delete\"' >> /var/spool/cron/crontabs/root &&
+             chmod 600 /var/spool/cron/crontabs/root &&
+             crond -f -d 8"
     environment:
-      BACKUP_SCHEDULE: "0 2 * * *"  # Run at 2 AM every day
+      - DB_PASSWORD=${DB_PASSWORD:-librenms_password}
+
+# Persistent storage
 volumes:
   db-data:
     driver: local
-    name: librenms_db_data
-    labels:
-      com.librenms.volume: "database-data"
-      com.librenms.backup: "true"
   librenms-data:
     driver: local
-    name: librenms_app_data
-    labels:
-      com.librenms.volume: "application-data"
-      com.librenms.backup: "true"
-  db-backup:
+  backup-volume:
     driver: local
-    name: librenms_db_backup
-  librenms-backup:
-    driver: local
-    name: librenms_app_backup
-  backup-config:
-    driver: local
-    name: librenms_backup_config
 
 networks:
   librenms:
     driver: overlay
     attachable: true
-    labels:
-      com.librenms.network: "main"
 
+# Config files embedded in the stack
 configs:
-  mariadb_config_v2:
-    file: ./mariadb-config.cnf
-    name: librenms_mariadb_config_v2  # Versioned name to avoid update conflicts
-  mariadb_config_v3:
-    file: ./mariadb-config.cnf
-    name: librenms_mariadb_config_v3  # Updated config with secure-file-priv=NULL setting
-  backup_script_v1:
-    file: ./backup.sh
-    name: librenms_backup_script_v1  # Versioned name to avoid update conflicts
+  mariadb_config_v4:
+    content: |
+      [mysqld]
+      # Security Settings
+      skip-networking=0
+      bind-address=0.0.0.0
+      local-infile=0
+      symbolic-links=0
+      # Explicitly set secure-file-priv to NULL to disable this feature
+      secure-file-priv=NULL
+
+      # User limits
+      max_connections=100
+      max_user_connections=50
+      max_connect_errors=10000
+      connect_timeout=5
+
+      # Query limits - prevent CPU/memory abuse
+      max_allowed_packet=16M
+      tmp_table_size=64M
+      max_heap_table_size=64M
+      thread_cache_size=128
+      query_cache_type=0
+      query_cache_size=0
+
+      # InnoDB settings
+      innodb_file_per_table=1
+      innodb_buffer_pool_size=256M
+      innodb_buffer_pool_instances=1
+      innodb_flush_log_at_trx_commit=1
+      innodb_log_buffer_size=16M
+      innodb_log_file_size=64M
+      innodb_strict_mode=1
+
+      # Logging
+      general_log=0
+      slow_query_log=1
+      slow_query_log_file=/var/log/mysql/mysql-slow.log
+      long_query_time=2
+      log_error=/var/log/mysql/error.log
+
+      # Character set and collation
+      character-set-server=utf8mb4
+      collation-server=utf8mb4_unicode_ci
+
+      # Disable potentially dangerous functions
+      sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_AUTO_VALUE_ON_ZERO,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE,ONLY_FULL_GROUP_BY
