@@ -35,8 +35,6 @@ services:
       - db-backup:/backup
     networks:
       - librenms
-    security_opt:
-      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -63,8 +61,6 @@ services:
         com.librenms.backup: "false"
     networks:
       - librenms
-    security_opt:
-      - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp
@@ -124,8 +120,6 @@ services:
       - "8080:8000"  # Changed to avoid Portainer conflict
     networks:
       - librenms
-    security_opt:
-      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
@@ -155,8 +149,6 @@ services:
         com.librenms.backup: "false"
     networks:
       - librenms
-    security_opt:
-      - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp
@@ -197,8 +189,6 @@ services:
       - backup-config:/scripts
     networks:
       - librenms
-    security_opt:
-      - no-new-privileges:true
     read_only: false
     cap_drop:
       - ALL
