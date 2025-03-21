@@ -89,7 +89,7 @@ services:
     image: librenms/librenms:23.11.0
     deploy:
       mode: replicated
-      replicas: 2  # Ensures high availability
+      replicas: 1  # Ensures high availability
       restart_policy:
         condition: any
       resources:
