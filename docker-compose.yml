@@ -1,5 +1,10 @@
 version: "3.8"
 
+# IMPORTANT DEPLOYMENT NOTES FOR PORTAINER:
+# 1. Set environment variables DB_PASSWORD and DB_ROOT_PASSWORD when deploying
+# 2. In Portainer deployment options, set --detach=false if available
+# 3. All services have security_opt removed for Docker Swarm compatibility
+
 services:
   db:
     image: mariadb:10.5
@@ -19,9 +24,8 @@ services:
     environment:
       MYSQL_DATABASE: librenms
       MYSQL_USER: librenms
-    secrets:
-      - db_root_password
-      - db_password
+      MYSQL_PASSWORD: ${DB_PASSWORD:-librenms_password}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-librenms_root_password}
     configs:
       - source: mariadb_config
         target: /etc/mysql/conf.d/custom.cnf
@@ -100,13 +104,12 @@ services:
       DB_HOST: db
       DB_NAME: librenms
       DB_USER: librenms
+      DB_PASSWORD: ${DB_PASSWORD:-librenms_password}
       REDIS_HOST: redis
       TZ: "UTC"
       BASE_URL: "http://localhost"
       ENABLE_DISTRIBUTED_POLLING: "true"
       DB_RRD: "true"
-    secrets:
-      - db_password
     logging:
       driver: "json-file"
       options:
@@ -183,6 +186,7 @@ services:
       labels:
         com.librenms.service: "backup"
         com.librenms.description: "Backup service for LibreNMS"
+        com.portainer.feature.detach-false: "true"  # Hint for Portainer to use --detach=false
     volumes:
       - db-backup:/backup/db
       - librenms-backup:/backup/librenms
@@ -236,12 +240,6 @@ networks:
     attachable: true
     labels:
       com.librenms.network: "main"
-
-secrets:
-  db_root_password:
-    external: true  # Create this secret before deployment with: docker secret create db_root_password /path/to/password_file
-  db_password:
-    external: true  # Create this secret before deployment with: docker secret create db_password /path/to/password_file
 
 configs:
   mariadb_config:
