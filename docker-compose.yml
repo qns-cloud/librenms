@@ -1,7 +1,7 @@
 version: "3.8"
 
 # DEPLOYMENT NOTES FOR PORTAINER:
-# 1. Upload all config files to a Git repository or directly to Portainer
+# 1. Upload all necessary files (docker-compose.yml and mariadb-config.cnf) to Portainer
 # 2. Set environment variables DB_PASSWORD and DB_ROOT_PASSWORD when deploying through Portainer UI
 # 3. No local shell scripts are required - this is a fully self-contained stack
 
@@ -200,52 +200,8 @@ networks:
     driver: overlay
     attachable: true
 
-# Config files embedded in the stack
+# Config files referenced from external files
 configs:
   mariadb_config_v4:
-    content: |
-      [mysqld]
-      # Security Settings
-      skip-networking=0
-      bind-address=0.0.0.0
-      local-infile=0
-      symbolic-links=0
-      # Explicitly set secure-file-priv to NULL to disable this feature
-      secure-file-priv=NULL
-
-      # User limits
-      max_connections=100
-      max_user_connections=50
-      max_connect_errors=10000
-      connect_timeout=5
-
-      # Query limits - prevent CPU/memory abuse
-      max_allowed_packet=16M
-      tmp_table_size=64M
-      max_heap_table_size=64M
-      thread_cache_size=128
-      query_cache_type=0
-      query_cache_size=0
-
-      # InnoDB settings
-      innodb_file_per_table=1
-      innodb_buffer_pool_size=256M
-      innodb_buffer_pool_instances=1
-      innodb_flush_log_at_trx_commit=1
-      innodb_log_buffer_size=16M
-      innodb_log_file_size=64M
-      innodb_strict_mode=1
-
-      # Logging
-      general_log=0
-      slow_query_log=1
-      slow_query_log_file=/var/log/mysql/mysql-slow.log
-      long_query_time=2
-      log_error=/var/log/mysql/error.log
-
-      # Character set and collation
-      character-set-server=utf8mb4
-      collation-server=utf8mb4_unicode_ci
-
-      # Disable potentially dangerous functions
-      sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_AUTO_VALUE_ON_ZERO,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE,ONLY_FULL_GROUP_BY
+    file: ./mariadb-config.cnf
+    name: librenms_mariadb_config_v4

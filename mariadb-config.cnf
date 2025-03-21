@@ -4,7 +4,7 @@ skip-networking=0
 bind-address=0.0.0.0  # Only needed if you want to allow remote connections
 local-infile=0
 symbolic-links=0
-# Setting secure-file-priv to NULL explicitly instead of removing it
+# Explicitly set secure-file-priv to NULL to disable this feature
 secure-file-priv=NULL
 
 # User limits
