@@ -4,9 +4,9 @@ skip-networking=0
 bind-address=0.0.0.0  # Only needed if you want to allow remote connections
 local-infile=0
 symbolic-links=0
-secure-file-priv=/var/lib/mysql-files
+secure-file-priv=NULL  # Disabled for Docker Swarm compatibility
 
-# User limits - prevent resource exhaustion
+# User limits
 max_connections=100
 max_user_connections=50
 max_connect_errors=10000
@@ -32,9 +32,9 @@ innodb_strict_mode=1
 # Logging for security auditing
 general_log=0
 slow_query_log=1
-slow_query_log_file=/var/lib/mysql/slow.log
+slow_query_log_file=/var/log/mysql/mysql-slow.log
 long_query_time=2
-log_error=/var/lib/mysql/error.log
+log_error=/var/log/mysql/error.log
 
 # Character set and collation
 character-set-server=utf8mb4
