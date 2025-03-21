@@ -27,7 +27,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:-librenms_password}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-librenms_root_password}
     configs:
-      - source: mariadb_config_v2
+      - source: mariadb_config_v3
         target: /etc/mysql/conf.d/custom.cnf
     logging:
       driver: "json-file"
@@ -244,6 +244,9 @@ configs:
   mariadb_config_v2:
     file: ./mariadb-config.cnf
     name: librenms_mariadb_config_v2  # Versioned name to avoid update conflicts
+  mariadb_config_v3:
+    file: ./mariadb-config.cnf
+    name: librenms_mariadb_config_v3  # Updated config with secure-file-priv=NULL setting
   backup_script_v1:
     file: ./backup.sh
     name: librenms_backup_script_v1  # Versioned name to avoid update conflicts
